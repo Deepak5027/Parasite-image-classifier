@@ -1,54 +1,52 @@
 import os
-import shutil
-from glob import glob
+from ultralytics import YOLO
 import cv2
-import numpy as np
-import matplotlib.pyplot as plt
 
-def split_images_by_shape(input_folder, output_folder_low, output_folder_high, threshold_width, threshold_height):
-    # Iterate through each class folder
-    for class_folder in os.listdir(input_folder):
-        class_path = os.path.join(input_folder, class_folder)
+class ParasiteDetector:
+    def __init__(self, model_path, threshold):
+        self.model = YOLO(model_path)
+        self.threshold = threshold
 
-        # Create output folders for low and high shapes
-        output_folder_low_class = os.path.join(output_folder_low, class_folder)
-        output_folder_high_class = os.path.join(output_folder_high, class_folder)
+    def detect_parasites(self, image_path, output_path):
+        image_files = [f for f in os.listdir(image_path) if f.endswith('.jpg')]
 
-        os.makedirs(output_folder_low_class, exist_ok=True)
-        os.makedirs(output_folder_high_class, exist_ok=True)
+        for image_file in image_files:
+            inimg = os.path.join(image_path, image_file)
+            outimg = os.path.join(output_path, image_file)
 
-        # Iterate through each image in the class folder
-        for image_name in os.listdir(class_path):
-            image_path = os.path.join(class_path, image_name)
+            image = cv2.imread(inimg)
+            H, W, _ = image.shape
 
-            # Read the image using OpenCV
-            image = cv2.imread(image_path)
+            results = self.model(image)[0]
 
-            # Check the shape of the image
-            height, width, _ = image.shape
+            for result in results.boxes.data.tolist():
+                x1, y1, x2, y2, score, class_id = result
 
-            # Determine whether the image has high or low shapes based on the dimensions
-            if width > threshold_width and height > threshold_height:
-                output_path = os.path.join(output_folder_high_class, image_name)
-            else:
-                output_path = os.path.join(output_folder_low_class, image_name)
+                if score > self.threshold:
+                    cv2.rectangle(image, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 4)
+                    cv2.putText(image, results.names[int(class_id)].upper(), (int(x1), int(y1 - 10)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0, 255, 0), 3, cv2.LINE_AA)
 
-            # Save the image to the appropriate output folder
-            cv2.imwrite(output_path, image)
-        print("Done!")
+            cv2.imwrite(outimg, image)
+            print(f"{image_file} Done!")
 
+    def crop_parasites(self, image_path, output_path):
+        image_files = [f for f in os.listdir(image_path) if f.endswith('.jpg')]
 
-def image_equalization(img):
-    # Calculate the cumulative distribution function (CDF)
-    cdf = hist.cumsum()
-    cdf_normalized = cdf * hist.max() / cdf.max()
+        for image_file in image_files:
+            inimg = os.path.join(image_path, image_file)
+            outimg = os.path.join(output_path, image_file)
 
-    # Create a dictionary for mapping the original pixel values to the equalized values
-    cdf_m = np.ma.masked_equal(cdf, 0)
-    cdf_m = (cdf_m - cdf_m.min()) * 255 / (cdf_m.max() - cdf_m.min())
-    cdf = np.ma.filled(cdf_m, 0).astype('uint8')
-    
-    # Apply the equalization to the image using the CDF mapping
-    equalized_image = cdf[image]
+            image = cv2.imread(inimg)
+            H, W, _ = image.shape
 
-    return equalized_image
+            results = self.model(image)[0]
+
+            for result in results.boxes.data.tolist():
+                x1, y1, x2, y2, score, class_id = result
+
+                if score > self.threshold:
+                    # Crop the detected parasite
+                    cropped_parasite = image[int(y1):int(y2), int(x1):int(x2)]
+                    cv2.imwrite(outimg, cropped_parasite)
+                    print(f"{image_file} Cropped and Saved!")

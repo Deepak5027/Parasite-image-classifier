@@ -1,0 +1,15 @@
+path: /content/gdrive/MyDrive/Parasite-Detection/data
+
+train: images/train
+val: images/val
+
+names:
+  0: Ascariasis
+  1: Capillaria p
+  2: Enterobius v
+  3: Fasciolopsis buski
+  4: Hookworm egg
+  5: Hymenolepis diminuta
+  6: Taenia spp
+  7: Trichuris trichiura
+
