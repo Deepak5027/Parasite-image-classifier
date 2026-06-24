@@ -1,52 +1,59 @@
 import os
-from ultralytics import YOLO
 import cv2
+from ultralytics import YOLO
+
 
 class ParasiteDetector:
-    def __init__(self, model_path, threshold):
+    def __init__(self, model_path, threshold=0.5):
         self.model = YOLO(model_path)
         self.threshold = threshold
 
-    def detect_parasites(self, image_path, output_path):
-        image_files = [f for f in os.listdir(image_path) if f.endswith('.jpg')]
+    def detect_parasites(self, input_dir, output_dir):
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        image_files = [f for f in os.listdir(input_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+
+        if not image_files:
+            print("No images found in input directory.")
+            return
 
         for image_file in image_files:
-            inimg = os.path.join(image_path, image_file)
-            outimg = os.path.join(output_path, image_file)
+            image_path = os.path.join(input_dir, image_file)
+            image = cv2.imread(image_path)
 
-            image = cv2.imread(inimg)
-            H, W, _ = image.shape
+            if image is None:
+                print(f"Could not read image: {image_file}")
+                continue
 
-            results = self.model(image)[0]
+            results = self.model.predict(source=image, conf=self.threshold, verbose=False)
 
-            for result in results.boxes.data.tolist():
-                x1, y1, x2, y2, score, class_id = result
+            for result in results:
+                boxes = result.boxes
 
-                if score > self.threshold:
-                    cv2.rectangle(image, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 4)
-                    cv2.putText(image, results.names[int(class_id)].upper(), (int(x1), int(y1 - 10)),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0, 255, 0), 3, cv2.LINE_AA)
+                if boxes is not None:
+                    for box in boxes:
+                        x1, y1, x2, y2 = map(int, box.xyxy[0])
+                        conf = float(box.conf[0])
+                        cls = int(box.cls[0])
 
-            cv2.imwrite(outimg, image)
-            print(f"{image_file} Done!")
+                        label = f"{self.model.names[cls]} {conf:.2f}"
 
-    def crop_parasites(self, image_path, output_path):
-        image_files = [f for f in os.listdir(image_path) if f.endswith('.jpg')]
+                        # Draw bounding box
+                        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                        cv2.putText(image, label, (x1, y1 - 10),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-        for image_file in image_files:
-            inimg = os.path.join(image_path, image_file)
-            outimg = os.path.join(output_path, image_file)
+            output_path = os.path.join(output_dir, image_file)
+            cv2.imwrite(output_path, image)
+            print(f"Processed: {image_file} -> {output_path}")
 
-            image = cv2.imread(inimg)
-            H, W, _ = image.shape
 
-            results = self.model(image)[0]
+if __name__ == "__main__":
+    MODEL_PATH = "best.pt"          # your trained YOLO model
+    INPUT_DIR = "input_images"      # folder with images
+    OUTPUT_DIR = "output_images"    # folder to save results
+    THRESHOLD = 0.5
 
-            for result in results.boxes.data.tolist():
-                x1, y1, x2, y2, score, class_id = result
-
-                if score > self.threshold:
-                    # Crop the detected parasite
-                    cropped_parasite = image[int(y1):int(y2), int(x1):int(x2)]
-                    cv2.imwrite(outimg, cropped_parasite)
-                    print(f"{image_file} Cropped and Saved!")
+    detector = ParasiteDetector(MODEL_PATH, THRESHOLD)
+    detector.detect_parasites(INPUT_DIR, OUTPUT_DIR)
