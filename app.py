@@ -1,59 +1,81 @@
 import os
 import cv2
+import streamlit as st
 from ultralytics import YOLO
+from PIL import Image
+import numpy as np
+
+# ---------------------------
+# PAGE CONFIG
+# ---------------------------
+st.set_page_config(page_title="Parasite Detector", layout="centered")
+
+st.title("🦠 Parasite Image Detection System")
+
+# ---------------------------
+# LOAD MODEL SAFELY
+# ---------------------------
+@st.cache_resource
+def load_model():
+    model_path = os.path.join(os.path.dirname(__file__), "best.pt")
+
+    if not os.path.exists(model_path):
+        st.error("❌ best.pt not found in project directory")
+        return None
+
+    try:
+        model = YOLO(model_path)
+        return model
+    except Exception as e:
+        st.error("❌ Failed to load model. Your best.pt may be corrupted or incompatible.")
+        st.exception(e)
+        return None
 
 
-class ParasiteDetector:
-    def __init__(self, model_path, threshold=0.5):
-        self.model = YOLO(model_path)
-        self.threshold = threshold
+model = load_model()
 
-    def detect_parasites(self, input_dir, output_dir):
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+# ---------------------------
+# CONFIDENCE SLIDER
+# ---------------------------
+conf_threshold = st.slider("Confidence Threshold", 0.0, 1.0, 0.5)
 
-        image_files = [f for f in os.listdir(input_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+# ---------------------------
+# IMAGE UPLOAD
+# ---------------------------
+uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
 
-        if not image_files:
-            print("No images found in input directory.")
-            return
+if uploaded_file is not None and model is not None:
 
-        for image_file in image_files:
-            image_path = os.path.join(input_dir, image_file)
-            image = cv2.imread(image_path)
+    # Read image
+    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+    image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
-            if image is None:
-                print(f"Could not read image: {image_file}")
-                continue
+    st.image(image, channels="BGR", caption="Original Image")
 
-            results = self.model.predict(source=image, conf=self.threshold, verbose=False)
+    # ---------------------------
+    # RUN DETECTION
+    # ---------------------------
+    results = model.predict(image, conf=conf_threshold, verbose=False)
 
-            for result in results:
-                boxes = result.boxes
+    for result in results:
+        for box in result.boxes:
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            conf = float(box.conf[0])
+            cls = int(box.cls[0])
 
-                if boxes is not None:
-                    for box in boxes:
-                        x1, y1, x2, y2 = map(int, box.xyxy[0])
-                        conf = float(box.conf[0])
-                        cls = int(box.cls[0])
+            label = f"{model.names[cls]} {conf:.2f}"
 
-                        label = f"{self.model.names[cls]} {conf:.2f}"
+            # Draw box
+            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(
+                image,
+                label,
+                (x1, y1 - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 255, 0),
+                2
+            )
 
-                        # Draw bounding box
-                        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                        cv2.putText(image, label, (x1, y1 - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-            output_path = os.path.join(output_dir, image_file)
-            cv2.imwrite(output_path, image)
-            print(f"Processed: {image_file} -> {output_path}")
-
-
-if __name__ == "__main__":
-    MODEL_PATH = "best.pt"          # your trained YOLO model
-    INPUT_DIR = "input_images"      # folder with images
-    OUTPUT_DIR = "output_images"    # folder to save results
-    THRESHOLD = 0.5
-
-    detector = ParasiteDetector(MODEL_PATH, THRESHOLD)
-    detector.detect_parasites(INPUT_DIR, OUTPUT_DIR)
+    st.subheader("Result")
+    st.image(image, channels="BGR")
